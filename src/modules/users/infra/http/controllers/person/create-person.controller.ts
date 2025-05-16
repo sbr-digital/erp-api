@@ -15,7 +15,7 @@ export class CreatePersonController {
       const createPersonUseCase = container.resolve(CreatePersonUseCase)
 
       const payload = await CreatePersonDTO.parseAsync(req.body)
-      console.log('payload', payload)
+
       await createPersonUseCase.execute(payload)
 
       return reply.status(201).send()

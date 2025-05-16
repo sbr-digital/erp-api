@@ -32,7 +32,7 @@ describe('ListPersonInfo(e2e)', async () => {
   const person = await prismaForTest.people.findFirst({
     where: { document_number: VALID_CPF[4] },
   })
-  console.log('aqui', person)
+
   test('should be possible to list person by id', async () => {
     const { statusCode, body } = await mockServer.request({
       method: 'GET',

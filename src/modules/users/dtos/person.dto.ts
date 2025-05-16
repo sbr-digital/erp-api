@@ -25,13 +25,7 @@ export const CreatePersonDTO = z
     const { documentType, documentNumber } = data
 
     if (documentType === 'CPF') {
-      if (!/^\d{11}$/.test(documentNumber)) {
-        ctx.addIssue({
-          path: ['documentNumber'],
-          message: 'CPF deve conter exatamente 11 dígitos numéricos',
-          code: 'custom',
-        })
-      } else if (!CPF.isValid(documentNumber)) {
+      if (!CPF.isValid(documentNumber)) {
         ctx.addIssue({
           path: ['documentNumber'],
           message: 'CPF inválido',
@@ -41,13 +35,7 @@ export const CreatePersonDTO = z
     }
 
     if (documentType === 'CNPJ') {
-      if (!/^[A-Z\d./-]{14}$/i.test(documentNumber)) {
-        ctx.addIssue({
-          path: ['documentNumber'],
-          message: 'CNPJ deve conter exatamente 14 caracteres alfanuméricos',
-          code: 'custom',
-        })
-      } else if (!CNPJ.isValid(documentNumber)) {
+      if (!CNPJ.isValid(documentNumber)) {
         ctx.addIssue({
           path: ['documentNumber'],
           message: 'CNPJ inválido',
@@ -114,13 +102,7 @@ export const UpdatePersonDTO = z
     const { documentType, documentNumber } = data
 
     if (documentNumber && documentType === 'CPF') {
-      if (!/^\d{11}$/.test(documentNumber)) {
-        ctx.addIssue({
-          path: ['documentNumber'],
-          message: 'CPF deve conter exatamente 11 dígitos numéricos',
-          code: 'custom',
-        })
-      } else if (!CPF.isValid(documentNumber)) {
+      if (!CPF.isValid(documentNumber)) {
         ctx.addIssue({
           path: ['documentNumber'],
           message: 'CPF inválido',
@@ -130,13 +112,7 @@ export const UpdatePersonDTO = z
     }
 
     if (documentNumber && documentType === 'CNPJ') {
-      if (!/^[A-Z\d./-]{14}$/i.test(documentNumber)) {
-        ctx.addIssue({
-          path: ['documentNumber'],
-          message: 'CNPJ deve conter exatamente 14 caracteres alfanuméricos',
-          code: 'custom',
-        })
-      } else if (!CNPJ.isValid(documentNumber)) {
+      if (!CNPJ.isValid(documentNumber)) {
         ctx.addIssue({
           path: ['documentNumber'],
           message: 'CNPJ inválido',

@@ -24,7 +24,7 @@ describe('Create Person (e2e)', async () => {
     }
   })
 
-  test.only('should be possible to create a new person with a correct payload', async () => {
+  test('should be possible to create a new person with a correct payload', async () => {
     const { statusCode } = await mockServer.request({
       method: 'POST',
       url: PATHS.PERSON.CREATE,
@@ -34,8 +34,6 @@ describe('Create Person (e2e)', async () => {
     const person = await prismaForTest.people.findFirst({
       where: { name: 'fake name e2e' },
     })
-
-    console.info('person', person)
 
     expect(person?.name).toEqual('fake name e2e')
     expect(person?.document_number).toEqual(VALID_CPF[0])

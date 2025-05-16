@@ -36,15 +36,12 @@ describe('ListUserInfo(e2e)', async () => {
     where: { email: 'testin-info9g@example.com' },
   })
 
-  console.log('aqui', JSON.stringify(user))
-
-  // const password = await new PasswordService().hashPassword('Password123!')
+  const password = await new PasswordService().hashPassword('Password123!')
 
   await prismaForTest.user.update({
     where: { id: user?.id },
     data: {
-      password:
-        'z1kcVhSPY6EAktD9b57Lj22O0HsZVYS8JhW9Gy2XYNA=:Vt14AfgZjGX7KiWNnQ3xYA==',
+      password,
     },
   })
 

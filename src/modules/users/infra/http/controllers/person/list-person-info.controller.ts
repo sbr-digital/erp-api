@@ -18,7 +18,6 @@ export class ListPersonInfoController {
       const { personId } = await ListPersonInfoDTO.parseAsync({
         personId: id,
       })
-      console.info('id', personId)
 
       const personInfo = await listPersonInfoUseCase.execute({
         personId,
