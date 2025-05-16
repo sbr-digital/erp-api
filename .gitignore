@@ -1,0 +1,22 @@
+# Dependencies
+node_modules
+
+# Envs
+.env
+.env.homolog
+.env.production
+
+# Build
+build
+dist
+
+*.key
+*.txt
+
+
+prisma/dbml
+prisma/views
+
+coverage
+
+

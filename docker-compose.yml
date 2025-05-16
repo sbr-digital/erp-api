@@ -1,0 +1,11 @@
+version: "3.8"
+services:
+  db:
+    image: bitnami/postgresql:latest
+    container_name: erp_postgres
+    environment:
+      - POSTGRESQL_USERNAME=docker
+      - POSTGRESQL_PASSWORD=docker
+      - POSTGRESQL_DATABASE=erp_local
+    ports:
+      - 5432:5432

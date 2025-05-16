@@ -1,0 +1,22 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["prismaSchemaFolder"]
+  binaryTargets   = ["native", "debian-openssl-3.0.x"]
+}
+
+generator dbml {
+  provider   = "prisma-dbml-generator"
+  output     = "../views"
+  outputName = "erp.dbml"
+}
+
+// generator docs {
+//   provider              = "node node_modules/prisma-docs-generator"
+//   output                = "../views"
+//   includeRelationFields = "false"
+// }
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

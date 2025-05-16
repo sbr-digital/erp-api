@@ -1,0 +1,31 @@
+{
+  "extends":["@rocketseat/eslint-config/node"],
+  "plugins": ["import"],
+  "rules": {
+    "no-useless-constructor":"off",
+    "import/no-restricted-paths": [
+      "error",
+      {
+        "zones": [
+          {
+            "target": ["./src/application/**","./src/domain/**","./src/modules/**/application/**","./src/modules/**/domain/**"],
+            "from": ["./src/infra/**","./src/modules/**/infra/**"],
+            "message": "The application layer should not depend on infra | clean architecture"
+          },
+          {
+            "target": ["./src/domain/**","./src/modules/**/domain/**"],
+            "from": ["./src/application/**","./src/modules/**/application/**"],
+            "message": "The domain layer should not depend on application | clean architecture"
+          }
+        ]
+      }
+    ]
+  },
+  "settings": {
+    "import/resolver": {
+      "node": {
+        "extensions": [".ts"]
+      }
+    }
+  }
+}

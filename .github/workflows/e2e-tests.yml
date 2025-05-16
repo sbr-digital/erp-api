@@ -1,0 +1,72 @@
+name: Running testes-e2e
+on: [pull_request]
+
+jobs:
+  CI:
+    runs-on: ubuntu-latest
+
+    services:
+      api-erp:
+        image: bitnami/postgresql
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USERNAME: docker
+          POSTGRES_PASSWORD: docker
+          POSTGRES_DATABASE: erp
+
+    steps:
+      - name: Checkout 🛎
+        uses: actions/checkout@v4
+
+      - name: Install pnpm 📦
+        run: npm install -g pnpm@9.15.2
+
+      - name: version pnpm 📦
+        run: pnpm -v
+      - name: Create pnpm cache directory
+        run: mkdir -p ~/.pnpm-store
+
+      - name: Cache dependencies 💎
+        id: cache-pnpm
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-pnpm
+        with:
+          # npm cache files are stored in `~/.npm` on Linux/macOS
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ env.cache-name }}-
+            ${{ runner.os }}-build-
+            ${{ runner.os }}-
+
+      - name: List the state of node modules
+        if: ${{ steps.cache-pnpm.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        run: pnpm  list
+
+      - name: Install dependencies 📦
+        run: pnpm install
+
+      - name: Run Lint 💎
+        run: pnpm run lint
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Copy files to S3
+        run: |
+          ${{ secrets.S3_FILES }}
+
+      - name: Run Tests:e2e 🧪
+        run: |
+          npx prisma generate
+          npm run test:e2e
+        env:
+          DATABASE_URL: "postgresql://docker:docker@localhost:5432/erp?schema=public"
+          file: .env

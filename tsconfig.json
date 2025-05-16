@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {   
+    "target": "ES2020",  
+    "module": "commonjs",  
+    "esModuleInterop": true, 
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "strict": true,    
+    "skipLibCheck": true,
+    "baseUrl": "./",
+    "paths": {"@/*":["./src/*"]},
+    "outDir": "./build",
+    "types": ["vitest/globals","./src/@types/global.d.ts"]
+  }
+}
