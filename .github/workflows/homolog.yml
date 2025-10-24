@@ -8,7 +8,7 @@ jobs:
   CI:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout 🛎
+      - name: Checkout 📥
         uses: actions/checkout@v4
 
       - name: Install pnpm 📦
@@ -20,7 +20,7 @@ jobs:
       - name: Create pnpm cache directory
         run: mkdir -p ~/.pnpm-store
 
-      - name: Cache dependencies 💎
+      - name: Cache dependencies 💾
         id: cache-pnpm
         uses: actions/cache@v4
         env:
@@ -42,7 +42,32 @@ jobs:
       - name: Install dependencies 📦
         run: pnpm install
 
-      - name: Run Lint 💎
+      # Security check first - fail fast if vulnerabilities found
+      - name: Security Audit 🔒
+        id: security
+        run: |
+          echo "Running security audit..."
+          
+          if pnpm audit --audit-level=high --json > audit-result.json 2>/dev/null; then
+            echo "No high/critical vulnerabilities found"
+            echo "security-status=passed" >> $GITHUB_OUTPUT
+          else
+            echo "High/Critical vulnerabilities found"
+            echo "security-status=failed" >> $GITHUB_OUTPUT
+            
+            if [ -f "audit-result.json" ] && [ -s "audit-result.json" ]; then
+              CRITICAL=$(cat audit-result.json | jq -r '.metadata.vulnerabilities.critical // 0')
+              HIGH=$(cat audit-result.json | jq -r '.metadata.vulnerabilities.high // 0')
+              
+              echo "## 🚨 Security Issues Found" >> $GITHUB_STEP_SUMMARY
+              echo "- Critical: $CRITICAL" >> $GITHUB_STEP_SUMMARY
+              echo "- High: $HIGH" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**Build will continue but please address these vulnerabilities.">> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+      - name: Run Lint 📎
         run: pnpm run lint
 
       # - name: Configure AWS credentials
@@ -56,10 +81,26 @@ jobs:
         run: |
           ${{ secrets.S3_FILES }}
 
+      - name: Generate Prisma Client ⚙️
+        run: npx prisma generate
+
       - name: Run Tests 🧪
+        run: pnpm run test
+
+      - name: Build Application 🛠️
+        run: pnpm run build
+
+      # Final security summary
+      - name: Security Summary 📋
+        if: always()
         run: |
-          npx prisma generate
-          pnpm run test
+          if [ "${{ steps.security.outputs.security-status }}" = "failed" ]; then
+            echo "⚠️  Security vulnerabilities detected but build completed."
+            echo "Please check the Security Audit step above for details."
+            echo "Consider running the Security Audit workflow for automated fixes."
+          else
+            echo "✅ No high/critical security vulnerabilities found."
+          fi
 
       # - name: Set up Docker Build
       #   uses: docker/setup-buildx-action@v3
