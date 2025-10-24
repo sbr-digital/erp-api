@@ -16,15 +16,19 @@ jobs:
 
       - name: 🧹 Clean workspace and configure pnpm
         run: |
-          rm -rf node_modules .pnpm-store .tmp
-          mkdir -p .pnpm-store .tmp
+          rm -rf node_modules .pnpm-store .tmp .npm
+          mkdir -p .pnpm-store .tmp .npm
           pnpm config set side-effects-cache-read false
           pnpm config set side-effects-cache-write false
           pnpm config set store-dir .pnpm-store
+          pnpm config set shamefully-hoist true
           echo "TMPDIR=$GITHUB_WORKSPACE/.tmp" >> $GITHUB_ENV
+          echo "npm_config_cache=$GITHUB_WORKSPACE/.npm" >> $GITHUB_ENV
 
       - name: Install dependencies (stable) 📦
-        run: pnpm install --no-frozen-lockfile
+        run: |
+          pnpm install --no-frozen-lockfile --ignore-scripts
+          pnpm rebuild
 
       - name: Run Lint 📎
         run: pnpm run lint
