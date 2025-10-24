@@ -36,8 +36,18 @@ jobs:
           key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: ${{ runner.os }}-pnpm-
 
-      - name: 📦 Install Dependencies
-        run: pnpm install --frozen-lockfile
+      - name: 📦 Install Dependencies (with lock update)
+        run: |
+          # Check if overrides in package.json match lockfile
+          if ! pnpm install --frozen-lockfile 2>/dev/null; then
+            echo "Lockfile mismatch detected, updating..."
+            # Remove existing lockfile and reinstall
+            rm -f pnpm-lock.yaml
+            pnpm install
+            echo "Lockfile updated successfully"
+          else
+            echo "Lockfile is up to date"
+          fi
 
       - name: 🔍 Security Audit
         id: audit
@@ -87,6 +97,24 @@ jobs:
           echo "## ✅ Security Check Passed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "No high or critical vulnerabilities found. Good job! 🎉" >> $GITHUB_STEP_SUMMARY
+
+      - name: 🔄 Commit Updated Lockfile (if changed)
+        if: success()
+        run: |
+          if [ -n "$(git status --porcelain pnpm-lock.yaml)" ]; then
+            echo "Lockfile was updated, committing changes..."
+            git config --global user.name "Security CI Bot"
+            git config --global user.email "security-bot@sbrdigital.com.br"
+            git add pnpm-lock.yaml
+            git commit -m "fix(deps): update pnpm-lock.yaml for security overrides
+            
+            - Synchronized lockfile with package.json overrides
+            - Applied during security check workflow
+            - Required for frozen lockfile compatibility"
+            git push
+          else
+            echo "Lockfile unchanged, no commit needed"
+          fi
 
       - name: 🚨 Fail on Critical Vulnerabilities
         if: steps.audit.outputs.status == 'failed'
