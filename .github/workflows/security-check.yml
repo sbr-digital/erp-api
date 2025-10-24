@@ -1,0 +1,103 @@
+name: Security Check (PR & Push)
+
+# Fast security check for PRs and pushes
+# Complements the comprehensive security-audit.yml workflow
+on:
+  pull_request:
+    branches: [homolog, main]
+  push:
+    branches: [homolog, main]
+    
+env:
+  NODE_VERSION: '20.x'
+  PNPM_VERSION: '9.15.2'
+
+jobs:
+  security-check:
+    name: 🔍 Quick Security Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📦 Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - name: 💾 Cache pnpm Store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: 📦 Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: 🔍 Security Audit
+        id: audit
+        run: |
+          echo "Running security audit..."
+          
+          # Run audit and capture exit code
+          if pnpm audit --audit-level=high --json > audit-result.json 2>/dev/null; then
+            echo "No high/critical vulnerabilities found"
+            echo "status=passed" >> $GITHUB_OUTPUT
+            echo "vulnerabilities=0" >> $GITHUB_OUTPUT
+          else
+            AUDIT_CODE=$?
+            echo "Security audit failed with code: $AUDIT_CODE"
+            
+            if [ -f "audit-result.json" ] && [ -s "audit-result.json" ]; then
+              CRITICAL=$(cat audit-result.json | jq -r '.metadata.vulnerabilities.critical // 0')
+              HIGH=$(cat audit-result.json | jq -r '.metadata.vulnerabilities.high // 0')
+              TOTAL=$((CRITICAL + HIGH))
+              
+              echo "status=failed" >> $GITHUB_OUTPUT
+              echo "vulnerabilities=$TOTAL" >> $GITHUB_OUTPUT
+              echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+              echo "high=$HIGH" >> $GITHUB_OUTPUT
+            else
+              echo "status=failed" >> $GITHUB_OUTPUT
+              echo "vulnerabilities=unknown" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: 📋 Generate Security Summary
+        if: steps.audit.outputs.status == 'failed'
+        run: |
+          echo "## 🚨 Security Check Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "High/Critical vulnerabilities found:" >> $GITHUB_STEP_SUMMARY
+          echo "- Critical: ${{ steps.audit.outputs.critical || 'unknown' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- High: ${{ steps.audit.outputs.high || 'unknown' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Action Required**: Review and address these vulnerabilities before merging." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The comprehensive security audit workflow will create an automated fix PR if possible." >> $GITHUB_STEP_SUMMARY
+
+      - name: ✅ Security Check Passed
+        if: steps.audit.outputs.status == 'passed'
+        run: |
+          echo "## ✅ Security Check Passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "No high or critical vulnerabilities found. Good job! 🎉" >> $GITHUB_STEP_SUMMARY
+
+      - name: 🚨 Fail on Critical Vulnerabilities
+        if: steps.audit.outputs.status == 'failed'
+        run: |
+          echo "Security audit found high/critical vulnerabilities."
+          echo "Please review the security summary above."
+          echo "" 
+          echo "To see detailed vulnerability information, check the audit result:"
+          if [ -f "audit-result.json" ]; then
+            echo "Audit details:"
+            cat audit-result.json | jq -r '.advisories | to_entries[] | "\(.value.title) (\(.value.severity))"' || true
+          fi
+          
+          exit 1
