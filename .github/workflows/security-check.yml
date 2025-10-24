@@ -1,7 +1,5 @@
 name: Security Check (PR & Push)
 
-# Fast security check for PRs and pushes
-# Complements the comprehensive security-audit.yml workflow
 on:
   pull_request:
     branches: [homolog, main]
@@ -29,21 +27,18 @@ jobs:
       - name: 📦 Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
 
-      - name: 💾 Cache pnpm Store
-        uses: actions/cache@v4
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: ${{ runner.os }}-pnpm-
+      - name: 🔧 pnpm config hardening
+        run: |
+          pnpm config set side-effects-cache-read false
+          pnpm config set side-effects-cache-write false
+          pnpm config set store-dir .pnpm-store
 
       - name: 📦 Install Dependencies (with lock update)
         run: |
-          # Check if overrides in package.json match lockfile
           if ! pnpm install --frozen-lockfile 2>/dev/null; then
             echo "Lockfile mismatch detected, updating..."
-            # Remove existing lockfile and reinstall
             rm -f pnpm-lock.yaml
-            pnpm install
+            pnpm install --no-frozen-lockfile
             echo "Lockfile updated successfully"
           else
             echo "Lockfile is up to date"
@@ -53,21 +48,15 @@ jobs:
         id: audit
         run: |
           echo "Running security audit..."
-          
-          # Run audit and capture exit code
           if pnpm audit --audit-level=high --json > audit-result.json 2>/dev/null; then
-            echo "No high/critical vulnerabilities found"
             echo "status=passed" >> $GITHUB_OUTPUT
             echo "vulnerabilities=0" >> $GITHUB_OUTPUT
           else
             AUDIT_CODE=$?
-            echo "Security audit failed with code: $AUDIT_CODE"
-            
             if [ -f "audit-result.json" ] && [ -s "audit-result.json" ]; then
               CRITICAL=$(cat audit-result.json | jq -r '.metadata.vulnerabilities.critical // 0')
               HIGH=$(cat audit-result.json | jq -r '.metadata.vulnerabilities.high // 0')
               TOTAL=$((CRITICAL + HIGH))
-              
               echo "status=failed" >> $GITHUB_OUTPUT
               echo "vulnerabilities=$TOTAL" >> $GITHUB_OUTPUT
               echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
@@ -78,54 +67,6 @@ jobs:
             fi
           fi
 
-      - name: 📋 Generate Security Summary
-        if: steps.audit.outputs.status == 'failed'
-        run: |
-          echo "## 🚨 Security Check Failed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "High/Critical vulnerabilities found:" >> $GITHUB_STEP_SUMMARY
-          echo "- Critical: ${{ steps.audit.outputs.critical || 'unknown' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- High: ${{ steps.audit.outputs.high || 'unknown' }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Action Required**: Review and address these vulnerabilities before merging." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The comprehensive security audit workflow will create an automated fix PR if possible." >> $GITHUB_STEP_SUMMARY
-
-      - name: ✅ Security Check Passed
-        if: steps.audit.outputs.status == 'passed'
-        run: |
-          echo "## ✅ Security Check Passed" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "No high or critical vulnerabilities found. Good job! 🎉" >> $GITHUB_STEP_SUMMARY
-
-      - name: 🔄 Commit Updated Lockfile (if changed)
-        if: success()
-        run: |
-          if [ -n "$(git status --porcelain pnpm-lock.yaml)" ]; then
-            echo "Lockfile was updated, committing changes..."
-            git config --global user.name "Security CI Bot"
-            git config --global user.email "security-bot@sbrdigital.com.br"
-            git add pnpm-lock.yaml
-            git commit -m "fix(deps): update pnpm-lock.yaml for security overrides
-            
-            - Synchronized lockfile with package.json overrides
-            - Applied during security check workflow
-            - Required for frozen lockfile compatibility"
-            git push
-          else
-            echo "Lockfile unchanged, no commit needed"
-          fi
-
       - name: 🚨 Fail on Critical Vulnerabilities
         if: steps.audit.outputs.status == 'failed'
-        run: |
-          echo "Security audit found high/critical vulnerabilities."
-          echo "Please review the security summary above."
-          echo "" 
-          echo "To see detailed vulnerability information, check the audit result:"
-          if [ -f "audit-result.json" ]; then
-            echo "Audit details:"
-            cat audit-result.json | jq -r '.advisories | to_entries[] | "\(.value.title) (\(.value.severity))"' || true
-          fi
-          
-          exit 1
+        run: exit 1
