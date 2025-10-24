@@ -77,14 +77,22 @@ jobs:
         run: |
           npm install -g pnpm@${{ env.PNPM_VERSION }}
           pnpm config set store-dir ~/.pnpm-store
+          
 
+      - name: 📦 Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8 # Ou a versão do pnpm que você usa
+  
       - name: 💾 Cache pnpm Store
         uses: actions/cache@v4
         with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          # Este é o caminho correto, obtido do passo anterior
+          path: ${{ env.PNPM_STORE_PATH }} 
+          key: ${{ runner.os }}-pnpm-store-v1-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-
+            ${{ runner.os }}-pnpm-store-v1-
+            
 
       - name: 📦 Install Dependencies (with lock update)
         run: |
