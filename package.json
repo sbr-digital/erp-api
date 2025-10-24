@@ -19,7 +19,8 @@
   "license": "UNLICENSED",
   "private": "true",
   "engines": {
-    "node": "20.x"
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
   },
   "scripts": {
     "docker-clean": "docker image prune -f && docker volume prune -f && docker network prune -f",
@@ -44,16 +45,15 @@
     "ci": "pnpm install --frozen-lockfile"
   },
   "dependencies": {
-    "@aws-sdk/client-ses": "3.654.0",
-    "@aws-sdk/client-sqs": "3.654.0",
-    "@faker-js/faker": "9.0.0",
-    "@fastify/cookie": "10.0.0",
-    "@fastify/cors": "10.0.0",
-    "@fastify/helmet": "12.0.0",
-    "@fastify/jwt": "9.0.0",
-    "@fastify/rate-limit": "10.0.0",
+    "@aws-sdk/client-ses": "^3.654.0",
+    "@aws-sdk/client-sqs": "^3.654.0",
+    "@faker-js/faker": "^10.0.0",
+    "@fastify/cookie": "^10.0.0",
+    "@fastify/cors": "^10.0.0",
+    "@fastify/helmet": "^12.0.0",
+    "@fastify/jwt": "^9.0.0",
+    "@fastify/rate-limit": "^10.0.0",
     "@prisma/client": "5.19.1",
-    "aws-lambda": "1.0.7",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.5.0",
     "fastify": "^5.3.3",
@@ -73,6 +73,7 @@
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",
     "@rocketseat/eslint-config": "^2.2.2",
+    "@types/aws-lambda": "^8.10.145",
     "@types/bcryptjs": "^2.4.6",
     "@types/d3": "7.4.3",
     "@types/geoip-lite": "1.4.4",
@@ -107,8 +108,14 @@
   "pnpm": {
     "overrides": {
       "cross-spawn@>=7.0.0 <7.0.5": ">=7.0.5",
-      "esbuild@<=0.24.2": ">=0.25.0",
-      "fast-jwt@<5.0.6": ">=5.0.6"
+      "esbuild@<=0.24.2": ">=0.25.5",
+      "fast-jwt@<6.0.1": ">=6.0.1",
+      "braces@<3.0.3": ">=3.0.3",
+      "glob@<8.1.0": ">=8.1.0",
+      "semver@<7.5.2": ">=7.5.2"
+    },
+    "peerDependencyRules": {
+      "ignoreMissing": ["@babel/core"]
     }
   }
 }

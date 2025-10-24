@@ -1,0 +1,72 @@
+name: Security Check (PR & Push)
+
+on:
+  pull_request:
+    branches: [homolog, main]
+  push:
+    branches: [homolog, main]
+    
+env:
+  NODE_VERSION: '20.x'
+  PNPM_VERSION: '9.15.2'
+
+jobs:
+  security-check:
+    name: 🔍 Quick Security Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📦 Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - name: 🔧 pnpm config hardening
+        run: |
+          pnpm config set side-effects-cache-read false
+          pnpm config set side-effects-cache-write false
+          pnpm config set store-dir .pnpm-store
+
+      - name: 📦 Install Dependencies (with lock update)
+        run: |
+          if ! pnpm install --frozen-lockfile 2>/dev/null; then
+            echo "Lockfile mismatch detected, updating..."
+            rm -f pnpm-lock.yaml
+            pnpm install --no-frozen-lockfile
+            echo "Lockfile updated successfully"
+          else
+            echo "Lockfile is up to date"
+          fi
+
+      - name: 🔍 Security Audit
+        id: audit
+        run: |
+          echo "Running security audit..."
+          if pnpm audit --audit-level=high --json > audit-result.json 2>/dev/null; then
+            echo "status=passed" >> $GITHUB_OUTPUT
+            echo "vulnerabilities=0" >> $GITHUB_OUTPUT
+          else
+            AUDIT_CODE=$?
+            if [ -f "audit-result.json" ] && [ -s "audit-result.json" ]; then
+              CRITICAL=$(cat audit-result.json | jq -r '.metadata.vulnerabilities.critical // 0')
+              HIGH=$(cat audit-result.json | jq -r '.metadata.vulnerabilities.high // 0')
+              TOTAL=$((CRITICAL + HIGH))
+              echo "status=failed" >> $GITHUB_OUTPUT
+              echo "vulnerabilities=$TOTAL" >> $GITHUB_OUTPUT
+              echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+              echo "high=$HIGH" >> $GITHUB_OUTPUT
+            else
+              echo "status=failed" >> $GITHUB_OUTPUT
+              echo "vulnerabilities=unknown" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: 🚨 Fail on Critical Vulnerabilities
+        if: steps.audit.outputs.status == 'failed'
+        run: exit 1
