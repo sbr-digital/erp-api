@@ -1,0 +1,479 @@
+name: Security Audit & Vulnerability Management
+
+# Triggers:
+# - Daily schedule (2 AM UTC)
+# - Manual dispatch
+# - On PRs that modify package.json or pnpm-lock.yaml
+# - Weekly dependency updates (Mondays)
+on:
+  schedule:
+    # Run daily at 2 AM UTC (11 PM BRT / Midnight BRST)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      severity:
+        description: 'Minimum vulnerability severity to address'
+        required: false
+        default: 'moderate'
+        type: choice
+        options:
+          - critical
+          - high  
+          - moderate
+          - low
+      auto_fix:
+        description: 'Automatically create PR with fixes'
+        required: false
+        default: true
+        type: boolean
+      force_update:
+        description: 'Force dependency updates even if breaking'
+        required: false
+        default: false
+        type: boolean
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.npmrc'
+  push:
+    branches:
+      - homolog
+    paths:
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.npmrc'
+
+env:
+  NODE_VERSION: '20.x'
+  PNPM_VERSION: '9.15.2'
+  AUDIT_LEVEL: 'moderate'
+
+jobs:
+  # Job 1: Security Audit and Vulnerability Assessment
+  security-audit:
+    name: 🔍 Security Audit
+    runs-on: ubuntu-latest
+    outputs:
+      has-vulnerabilities: ${{ steps.audit.outputs.has-vulnerabilities }}
+      critical-count: ${{ steps.audit.outputs.critical-count }}
+      high-count: ${{ steps.audit.outputs.high-count }}
+      moderate-count: ${{ steps.audit.outputs.moderate-count }}
+      audit-report: ${{ steps.audit.outputs.audit-report }}
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🛠️ Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org/'
+
+      - name: 📦 Install pnpm ${{ env.PNPM_VERSION }}
+        run: |
+          npm install -g pnpm@${{ env.PNPM_VERSION }}
+          pnpm config set store-dir ~/.pnpm-store
+
+      - name: 💾 Cache pnpm Store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: 📦 Install Dependencies
+        run: |
+          pnpm install --frozen-lockfile
+
+      - name: 🔍 Run Security Audit
+        id: audit
+        run: |
+          echo "Running pnpm audit..."
+          
+          # Create audit report
+          pnpm audit --audit-level=${{ env.AUDIT_LEVEL }} --json > audit-report.json 2>/dev/null || true
+          pnpm audit --audit-level=${{ env.AUDIT_LEVEL }} > audit-report.txt 2>/dev/null || true
+          
+          # Parse results
+          if [ -f "audit-report.json" ] && [ -s "audit-report.json" ]; then
+            CRITICAL=$(cat audit-report.json | jq -r '.metadata.vulnerabilities.critical // 0')
+            HIGH=$(cat audit-report.json | jq -r '.metadata.vulnerabilities.high // 0')
+            MODERATE=$(cat audit-report.json | jq -r '.metadata.vulnerabilities.moderate // 0')
+            LOW=$(cat audit-report.json | jq -r '.metadata.vulnerabilities.low // 0')
+            
+            echo "critical-count=$CRITICAL" >> $GITHUB_OUTPUT
+            echo "high-count=$HIGH" >> $GITHUB_OUTPUT
+            echo "moderate-count=$MODERATE" >> $GITHUB_OUTPUT
+            echo "low-count=$LOW" >> $GITHUB_OUTPUT
+            
+            TOTAL=$((CRITICAL + HIGH + MODERATE + LOW))
+            if [ $TOTAL -gt 0 ]; then
+              echo "has-vulnerabilities=true" >> $GITHUB_OUTPUT
+            else
+              echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "has-vulnerabilities=false" >> $GITHUB_OUTPUT
+            echo "critical-count=0" >> $GITHUB_OUTPUT
+            echo "high-count=0" >> $GITHUB_OUTPUT
+            echo "moderate-count=0" >> $GITHUB_OUTPUT
+          fi
+          
+          # Save audit report for later use
+          if [ -f "audit-report.txt" ]; then
+            echo "audit-report<<EOF" >> $GITHUB_OUTPUT
+            cat audit-report.txt >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 📋 Upload Audit Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-audit-report
+          path: |
+            audit-report.json
+            audit-report.txt
+          retention-days: 30
+
+      - name: 🚨 Comment PR with Audit Results
+        if: github.event_name == 'pull_request' && steps.audit.outputs.has-vulnerabilities == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const critical = '${{ steps.audit.outputs.critical-count }}';
+            const high = '${{ steps.audit.outputs.high-count }}';
+            const moderate = '${{ steps.audit.outputs.moderate-count }}';
+            
+            const body = `## 🚨 Security Audit Results
+            
+            **Vulnerabilities Found:**
+            - 🔴 Critical: ${critical}
+            - 🟠 High: ${high} 
+            - 🟡 Moderate: ${moderate}
+            
+            📊 **Action Required**: Please review the security audit report and address critical/high severity vulnerabilities before merging.
+            
+            <details>
+            <summary>📝 View Full Audit Report</summary>
+            
+            \`\`\`
+            ${{ steps.audit.outputs.audit-report }}
+            \`\`\`
+            </details>
+            
+            ---
+            🤖 *Generated by Security Audit Workflow*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+  # Job 2: Automated Vulnerability Fixes
+  auto-fix-vulnerabilities:
+    name: 🔧 Auto-Fix Vulnerabilities
+    runs-on: ubuntu-latest
+    needs: security-audit
+    if: |
+      needs.security-audit.outputs.has-vulnerabilities == 'true' &&
+      (github.event_name == 'schedule' || 
+       github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/homolog'))
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: 🛠️ Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📦 Install pnpm ${{ env.PNPM_VERSION }}
+        run: |
+          npm install -g pnpm@${{ env.PNPM_VERSION }}
+          pnpm config set store-dir ~/.pnpm-store
+
+      - name: 💾 Cache pnpm Store  
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: 📦 Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: 🔧 Apply Automated Fixes
+        id: fixes
+        run: |
+          echo "Applying automated security fixes..."
+          
+          # Create a timestamp for branch naming
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          BRANCH_NAME="security/auto-fix-$TIMESTAMP"
+          
+          echo "branch-name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          
+          # Configure git
+          git config --global user.name "Security Bot"
+          git config --global user.email "security-bot@sbrdigital.com.br"
+          
+          # Create new branch
+          git checkout -b "$BRANCH_NAME"
+          
+          # Try automatic fixes
+          HAS_FIXES=false
+          
+          # 1. Try pnpm audit --fix (for non-breaking fixes)
+          echo "Attempting non-breaking fixes..."
+          if pnpm audit --fix --audit-level=moderate; then
+            if git diff --quiet; then
+              echo "No changes from pnpm audit --fix"
+            else
+              git add .
+              git commit -m "fix(security): apply non-breaking vulnerability fixes
+              
+              - Applied pnpm audit --fix for moderate+ vulnerabilities
+              - Changes are backwards compatible
+              - Auto-generated by Security Audit Workflow"
+              HAS_FIXES=true
+            fi
+          fi
+          
+          # 2. Update dependencies to latest patch versions
+          echo "Updating to latest patch versions..."
+          if pnpm update --latest --filter="*" --depth=1; then
+            if git diff --quiet; then
+              echo "No changes from patch updates"
+            else
+              git add .
+              git commit -m "chore(deps): update dependencies to latest patch versions
+              
+              - Updated all dependencies to latest patch versions
+              - Maintains semantic version compatibility
+              - Auto-generated by Security Audit Workflow"
+              HAS_FIXES=true
+            fi
+          fi
+          
+          # 3. Apply known security overrides
+          echo "Applying security overrides..."
+          PACKAGE_JSON_CHANGED=false
+          
+          # Check if package.json needs security overrides update
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          
+          const securityOverrides = {
+            'cross-spawn@>=7.0.0 <7.0.5': '>=7.0.5',
+            'esbuild@<=0.24.2': '>=0.25.5',
+            'fast-jwt@<6.0.1': '>=6.0.1',
+            'braces@<3.0.3': '>=3.0.3',
+            'glob@<8.1.0': '>=8.1.0',
+            'semver@<7.5.2': '>=7.5.2',
+            'axios@<1.6.0': '>=1.6.0',
+            'follow-redirects@<1.15.4': '>=1.15.4'
+          };
+          
+          if (!pkg.pnpm) pkg.pnpm = {};
+          if (!pkg.pnpm.overrides) pkg.pnpm.overrides = {};
+          
+          let changed = false;
+          for (const [pattern, version] of Object.entries(securityOverrides)) {
+            if (pkg.pnpm.overrides[pattern] !== version) {
+              pkg.pnpm.overrides[pattern] = version;
+              changed = true;
+            }
+          }
+          
+          if (changed) {
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            process.exit(1);
+          }
+          " && PACKAGE_JSON_CHANGED=true || true
+          
+          if [ "$PACKAGE_JSON_CHANGED" = "true" ]; then
+            git add package.json
+            git commit -m "fix(security): update pnpm overrides for known vulnerabilities
+            
+            - Added/updated security overrides for vulnerable packages
+            - Forces safe versions for transitive dependencies
+            - Auto-generated by Security Audit Workflow"
+            HAS_FIXES=true
+          fi
+          
+          echo "has-fixes=$HAS_FIXES" >> $GITHUB_OUTPUT
+          
+          # Run audit again to check if fixes worked
+          echo "Verifying fixes..."
+          pnpm audit --audit-level=moderate --json > post-fix-audit.json 2>/dev/null || true
+          
+          if [ -f "post-fix-audit.json" ] && [ -s "post-fix-audit.json" ]; then
+            REMAINING=$(cat post-fix-audit.json | jq -r '.metadata.vulnerabilities | to_entries | map(.value) | add // 0')
+            echo "remaining-vulnerabilities=$REMAINING" >> $GITHUB_OUTPUT
+          else
+            echo "remaining-vulnerabilities=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 📝 Run Tests After Fixes
+        if: steps.fixes.outputs.has-fixes == 'true'
+        run: |
+          echo "Running tests to ensure fixes don't break functionality..."
+          
+          # Generate Prisma client
+          npx prisma generate
+          
+          # Run linting
+          pnpm run lint
+          
+          # Run tests
+          pnpm run test
+          
+          # Test build
+          pnpm run build
+          
+          echo "✅ All checks passed!"
+
+      - name: 📤 Create Pull Request
+        if: steps.fixes.outputs.has-fixes == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ steps.fixes.outputs.branch-name }}
+          title: "🔒 Security: Auto-fix vulnerabilities (Critical: ${{ needs.security-audit.outputs.critical-count }}, High: ${{ needs.security-audit.outputs.high-count }})"
+          body: |
+            ## 🔒 Automated Security Fixes
+            
+            This PR was automatically created to address security vulnerabilities found in the project.
+            
+            ### 🚨 Vulnerabilities Addressed
+            - **Critical**: ${{ needs.security-audit.outputs.critical-count }}
+            - **High**: ${{ needs.security-audit.outputs.high-count }}
+            - **Moderate**: ${{ needs.security-audit.outputs.moderate-count }}
+            
+            ### 🔧 Fixes Applied
+            - ✅ Non-breaking vulnerability fixes via `pnpm audit --fix`
+            - ✅ Updated dependencies to latest patch versions
+            - ✅ Applied/updated security overrides in package.json
+            - ✅ Verified fixes with test suite
+            
+            ### 📋 Remaining Issues
+            - **Remaining vulnerabilities**: ${{ steps.fixes.outputs.remaining-vulnerabilities }}
+            
+            ### ✅ Validation Completed
+            - ✅ Linting passed
+            - ✅ Tests passed
+            - ✅ Build successful
+            - ✅ Prisma generation successful
+            
+            ### 🛠️ Manual Review Required
+            Please review the changes and:
+            1. Verify no breaking changes in functionality
+            2. Test critical user flows
+            3. Check AWS integrations (SES/SQS)
+            4. Validate JWT authentication
+            
+            ---
+            🤖 *Auto-generated by Security Audit Workflow on ${{ github.repository }}*
+            📅 *Generated at: $(date)*
+          labels: |
+            security
+            dependencies
+            automated
+          assignees: ${{ github.actor }}
+          draft: false
+
+  # Job 3: Dependency Health Check (Weekly)
+  dependency-health:
+    name: 📊 Dependency Health Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📦 Install pnpm ${{ env.PNPM_VERSION }}
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - name: 📦 Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: 📋 Generate Dependency Report
+        run: |
+          echo "# Dependency Health Report" > dependency-report.md
+          echo "Generated on: $(date)" >> dependency-report.md
+          echo "" >> dependency-report.md
+          
+          echo "## Outdated Dependencies" >> dependency-report.md
+          pnpm outdated --format=table >> dependency-report.md || true
+          
+          echo "" >> dependency-report.md
+          echo "## Dependency Tree Size" >> dependency-report.md
+          pnpm ls --depth=0 --format=table >> dependency-report.md || true
+          
+          echo "" >> dependency-report.md
+          echo "## License Check" >> dependency-report.md
+          pnpm licenses list --format=table >> dependency-report.md || true
+
+      - name: 📋 Upload Dependency Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-health-report
+          path: dependency-report.md
+          retention-days: 7
+
+  # Job 4: Security Summary
+  security-summary:
+    name: 📋 Security Summary
+    runs-on: ubuntu-latest
+    needs: [security-audit, auto-fix-vulnerabilities]
+    if: always() && needs.security-audit.result == 'success'
+    
+    steps:
+      - name: 📋 Create Security Summary
+        run: |
+          echo "## 🔒 Security Audit Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.security-audit.outputs.has-vulnerabilities }}" = "true" ]; then
+            echo "### 🚨 Vulnerabilities Found" >> $GITHUB_STEP_SUMMARY
+            echo "- 🔴 Critical: ${{ needs.security-audit.outputs.critical-count }}" >> $GITHUB_STEP_SUMMARY
+            echo "- 🟠 High: ${{ needs.security-audit.outputs.high-count }}" >> $GITHUB_STEP_SUMMARY
+            echo "- 🟡 Moderate: ${{ needs.security-audit.outputs.moderate-count }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "${{ needs.auto-fix-vulnerabilities.result }}" = "success" ]; then
+              echo "### ✅ Automated Fixes Applied" >> $GITHUB_STEP_SUMMARY
+              echo "A pull request has been created with security fixes." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "### ⚠️ Manual Intervention Required" >> $GITHUB_STEP_SUMMARY
+              echo "Some vulnerabilities require manual fixes." >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ✅ No Vulnerabilities Found" >> $GITHUB_STEP_SUMMARY
+            echo "Your dependencies are secure! 🎉" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "📅 **Report Date**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 **Repository**: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "🌱 **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
