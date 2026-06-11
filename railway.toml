@@ -3,4 +3,3 @@
 
 [deploy]
   startCommand = "node build/server.js"
-  healthcheckPath = "/ping_"
