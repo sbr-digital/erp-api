@@ -1,0 +1,6 @@
+[build]
+  buildCommand = "pnpm install --frozen-lockfile && npx prisma generate && pnpm build && npx prisma migrate deploy"
+
+[deploy]
+  startCommand = "node build/server.js"
+  healthcheckPath = "/health"
